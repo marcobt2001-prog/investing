@@ -1,6 +1,133 @@
 import { useState, useEffect, useCallback } from 'react'
 import { analyzeStock } from '../utils/api'
 import { formatCurrency, formatLargeCurrency, formatPercent } from '../utils/format'
+import IvTrendChart from './IvTrendChart'
+
+const MODEL_LABELS = {
+  graham: 'Graham', dcf: 'DCF', book_value: 'Book Value', epv: 'EPV', ncav: 'NCAV',
+}
+
+function trendColor(trend) {
+  if (trend === 'growing') return 'var(--green)'
+  if (trend === 'declining') return 'var(--red)'
+  return 'var(--amber)'
+}
+
+function IvTrendsSection({ ivTrends }) {
+  if (!ivTrends) return null
+  const g = ivTrends.growthRate || {}
+  const fmtPct = (v) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
+
+  return (
+    <>
+      <h3 className="section-header">Intrinsic Value Trend</h3>
+      <div className="card" style={{ padding: 16 }}>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: 0.5 }}>TREND</div>
+            <div style={{ fontWeight: 700, color: trendColor(g.trend), textTransform: 'capitalize' }}>
+              {g.trend || '—'}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: 0.5 }}>IV GROWTH (5YR)</div>
+            <div className="mono" style={{ color: (g.cagr_5yr ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+              {fmtPct(g.cagr_5yr)}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: 0.5 }}>IV GROWTH (10YR)</div>
+            <div className="mono" style={{ color: (g.cagr_10yr ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+              {fmtPct(g.cagr_10yr)}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: 0.5 }}>STABILITY (R²)</div>
+            <div className="mono">{g.stability != null ? g.stability.toFixed(2) : '—'}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: 0.5 }}>RECENT</div>
+            <div style={{ fontWeight: 600, color: g.recent_direction === 'up' ? 'var(--green)' : 'var(--red)' }}>
+              {g.recent_direction ? (g.recent_direction === 'up' ? '↑ Up' : '↓ Down') : '—'}
+            </div>
+          </div>
+        </div>
+        <IvTrendChart ivTrends={ivTrends} />
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '8px 0 0 0' }}>
+          Each model's per-share intrinsic value computed as-of each fiscal year, vs the average traded price that year.
+          A rising composite well above price is the strongest value signal.
+        </p>
+      </div>
+    </>
+  )
+}
+
+function ModelAccuracySection({ valuation }) {
+  const ma = valuation?.modelAccuracy
+  if (!ma) return null
+  const rankings = ma.rankings || {}
+  const ordered = Object.entries(rankings).sort((a, b) => (a[1].rank || 99) - (b[1].rank || 99))
+  const maxWeight = Math.max(0.01, ...ordered.map(([, r]) => r.weight || 0))
+
+  return (
+    <>
+      <h3 className="section-header">Model Accuracy — {ma.industry}</h3>
+      <div className="card" style={{ padding: 16 }}>
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: 0.5 }}>COMPOSITE IV (naive)</div>
+            <div className="mono" style={{ fontSize: '1.4rem' }}>{formatCurrency(valuation.compositeValue)}</div>
+            {valuation.signal && (
+              <span className={`signal-badge ${valuation.signal.replace(/ /g, '_')}`} style={{ marginTop: 4 }}>
+                {valuation.signal}
+              </span>
+            )}
+          </div>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: 0.5 }}>INDUSTRY-WEIGHTED IV</div>
+            <div className="mono" style={{ fontSize: '1.4rem', color: 'var(--blue)' }}>
+              {valuation.weightedValue != null ? formatCurrency(valuation.weightedValue) : 'N/A'}
+            </div>
+            {valuation.weightedSignal && (
+              <span className={`signal-badge ${valuation.weightedSignal.replace(/ /g, '_')}`} style={{ marginTop: 4 }}>
+                {valuation.weightedSignal}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 12px 0' }}>
+          Most predictive model for this industry: <strong style={{ color: 'var(--green)' }}>{MODEL_LABELS[ma.bestModel3yr] || ma.bestModel3yr || '—'}</strong>
+          {ma.worstModel3yr && <> · Least: <strong style={{ color: 'var(--red)' }}>{MODEL_LABELS[ma.worstModel3yr] || ma.worstModel3yr}</strong></>}
+          . Weights below are inverse to each model's historical 3-year prediction error.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {ordered.map(([model, r]) => (
+            <div key={model} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 90, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {MODEL_LABELS[model] || model}
+              </div>
+              <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 4, height: 18, position: 'relative' }}>
+                <div style={{
+                  width: `${((r.weight || 0) / maxWeight) * 100}%`,
+                  height: '100%', background: r.rank === 1 ? 'var(--green)' : 'var(--blue)',
+                  borderRadius: 4, transition: 'width 0.3s',
+                }} />
+              </div>
+              <div className="mono" style={{ width: 52, textAlign: 'right', fontSize: '0.8rem' }}>
+                {r.weight != null ? `${(r.weight * 100).toFixed(0)}%` : '—'}
+              </div>
+              <div className="mono" style={{ width: 90, textAlign: 'right', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                err {r.avgError3yr != null ? r.avgError3yr.toFixed(2) : '—'}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
 
 function ScoreCard({ title, grade, score, maxScore, pctScore, extra }) {
   return (
@@ -18,7 +145,7 @@ function ScoreCard({ title, grade, score, maxScore, pctScore, extra }) {
   )
 }
 
-function ValuationCard({ compositeValue, currentPrice, discount, signal }) {
+function ValuationCard({ compositeValue, discount, signal }) {
   return (
     <div className="score-card">
       <div className="score-label">Composite Intrinsic Value</div>
@@ -114,6 +241,7 @@ export default function Analysis({ apiKey, initialSymbol, onBacktest }) {
   const graham = data?.graham
   const fisher = data?.fisher
   const valuation = data?.valuation
+  const ivTrends = data?.ivTrends
 
   return (
     <div>
@@ -207,7 +335,6 @@ export default function Analysis({ apiKey, initialSymbol, onBacktest }) {
             {valuation && (
               <ValuationCard
                 compositeValue={valuation.compositeValue}
-                currentPrice={valuation.currentPrice}
                 discount={valuation.compositeDiscount}
                 signal={valuation.signal}
               />
@@ -281,6 +408,12 @@ export default function Analysis({ apiKey, initialSymbol, onBacktest }) {
               </div>
             </>
           )}
+
+          {/* IV Trends (Phase 3) */}
+          <IvTrendsSection ivTrends={ivTrends} />
+
+          {/* Model Accuracy by Industry (Phase 3) */}
+          <ModelAccuracySection valuation={valuation} />
 
           {/* Buy Prices */}
           {valuation?.buyPrices && (

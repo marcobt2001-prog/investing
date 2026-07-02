@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local database + cached source files (regenerated on demand)
+backend/database/value_investor.db
+backend/database/value_investor.db-wal
+backend/database/value_investor.db-shm
+backend/ingestion/_cache/
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

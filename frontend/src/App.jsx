@@ -3,6 +3,7 @@ import './App.css'
 import Screener from './components/Screener'
 import Analysis from './components/Analysis'
 import Backtest from './components/Backtest'
+import IndustryView from './components/IndustryView'
 
 function App() {
   const [apiKey, setApiKey] = useState('')
@@ -28,15 +29,15 @@ function App() {
           <span className="header-subtitle">Intelligence System</span>
         </div>
         <div className="api-key-input">
-          <label>FMP API Key</label>
+          <label>FMP API Key (optional)</label>
           <input
             type="password"
-            placeholder="Enter your API key..."
+            placeholder="Only needed as fallback..."
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
           <span className={`key-status ${apiKey ? 'valid' : 'empty'}`}>
-            {apiKey ? 'Ready' : 'Required'}
+            {apiKey ? 'Set' : 'DB-only'}
           </span>
         </div>
       </header>
@@ -48,6 +49,12 @@ function App() {
           onClick={() => setActiveTab('screener')}
         >
           Screener
+        </button>
+        <button
+          className={`tab ${activeTab === 'industries' ? 'active' : ''}`}
+          onClick={() => setActiveTab('industries')}
+        >
+          Industries
         </button>
         <button
           className={`tab ${activeTab === 'analysis' ? 'active' : ''}`}
@@ -63,36 +70,27 @@ function App() {
         </button>
       </nav>
 
-      {/* Content */}
-      {!apiKey ? (
-        <div className="empty-state">
-          <h3>Enter Your API Key</h3>
-          <p>
-            Enter your Financial Modeling Prep API key above to get started.
-            Get a free key at{' '}
-            <a href="https://financialmodelingprep.com/developer" target="_blank" rel="noreferrer"
-               style={{ color: 'var(--blue)' }}>
-              financialmodelingprep.com
-            </a>
-          </p>
-        </div>
-      ) : (
-        <div className="fade-in" key={activeTab}>
-          {activeTab === 'screener' && (
-            <Screener apiKey={apiKey} onSelectStock={handleSelectStock} />
-          )}
-          {activeTab === 'analysis' && (
-            <Analysis
-              apiKey={apiKey}
-              initialSymbol={selectedSymbol}
-              onBacktest={handleBacktestStock}
-            />
-          )}
-          {activeTab === 'backtest' && (
-            <Backtest apiKey={apiKey} initialSymbol={selectedSymbol} />
-          )}
-        </div>
-      )}
+      {/* Content — works without an API key. The key is only forwarded
+          to /api/analyze and /api/backtest as an FMP fallback for tickers
+          not yet in the local DB. */}
+      <div className="fade-in" key={activeTab}>
+        {activeTab === 'screener' && (
+          <Screener apiKey={apiKey} onSelectStock={handleSelectStock} />
+        )}
+        {activeTab === 'industries' && (
+          <IndustryView onSelectStock={handleSelectStock} />
+        )}
+        {activeTab === 'analysis' && (
+          <Analysis
+            apiKey={apiKey}
+            initialSymbol={selectedSymbol}
+            onBacktest={handleBacktestStock}
+          />
+        )}
+        {activeTab === 'backtest' && (
+          <Backtest apiKey={apiKey} initialSymbol={selectedSymbol} />
+        )}
+      </div>
 
       {/* Disclaimer */}
       <footer className="disclaimer">
