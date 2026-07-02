@@ -49,6 +49,7 @@ _SCORE_COLUMNS = {
     "intrinsic_value_epv", "intrinsic_value_ncav", "intrinsic_value_composite",
     "discount_to_intrinsic", "signal",
     "iv_cagr_5yr", "iv_cagr_10yr", "iv_trend", "iv_stability",
+    "graham_completeness", "fisher_completeness",
     "last_computed",
 }
 
@@ -387,6 +388,8 @@ def screen_companies(
     signal: Optional[str] = None,
     min_discount: Optional[float] = None,
     iv_trend: Optional[str] = None,
+    min_graham_completeness: Optional[float] = None,
+    min_fisher_completeness: Optional[float] = None,
     sort_by: str = "graham_pct",
     sort_dir: str = "DESC",
     limit: int = 50,
@@ -442,6 +445,12 @@ def screen_companies(
     if iv_trend:
         where.append("s.iv_trend = ?")
         params.append(iv_trend)
+    if min_graham_completeness is not None:
+        where.append("s.graham_completeness >= ?")
+        params.append(min_graham_completeness)
+    if min_fisher_completeness is not None:
+        where.append("s.fisher_completeness >= ?")
+        params.append(min_fisher_completeness)
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
@@ -452,6 +461,7 @@ def screen_companies(
             s.fisher_total, s.fisher_pct, s.fisher_grade,
             s.intrinsic_value_composite, s.discount_to_intrinsic, s.signal,
             s.iv_cagr_5yr, s.iv_cagr_10yr, s.iv_trend, s.iv_stability,
+            s.graham_completeness, s.fisher_completeness,
             s.last_computed
         FROM companies c
         LEFT JOIN scores s ON s.symbol = c.symbol

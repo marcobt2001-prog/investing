@@ -166,7 +166,7 @@ function ValuationCard({ compositeValue, discount, signal }) {
   )
 }
 
-function CriterionRow({ label, value, threshold, score, manual, question }) {
+function CriterionRow({ label, value, threshold, score, manual, question, noData }) {
   if (manual) {
     return (
       <div className="criterion manual-review">
@@ -175,6 +175,24 @@ function CriterionRow({ label, value, threshold, score, manual, question }) {
           <div className="criterion-label">{label}</div>
           <div className="manual-badge">Manual Review Required</div>
           <div className="criterion-threshold">{question}</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Missing input data: show a neutral "No Data" indicator instead of a red
+  // 0.0, so a genuine fail is visually distinct from a data gap.
+  if (noData) {
+    return (
+      <div className="criterion" style={{ opacity: 0.7 }}>
+        <div className="dot" style={{ background: 'var(--text-muted)' }} />
+        <div className="criterion-info">
+          <div className="criterion-label">{label}</div>
+          <div className="criterion-value" style={{ color: 'var(--text-muted)' }}>No data</div>
+          <div className="criterion-threshold">{threshold}</div>
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          N/A
         </div>
       </div>
     )
@@ -199,6 +217,23 @@ function CriterionRow({ label, value, threshold, score, manual, question }) {
         {score.toFixed(1)}
       </div>
     </div>
+  )
+}
+
+// Small completeness summary line for a section header.
+function CompletenessSummary({ dataAvailable, completeness }) {
+  if (!dataAvailable) return null
+  // Count only data-dependent criteria (dataAvailable !== null).
+  const entries = Object.values(dataAvailable).filter((v) => v !== null)
+  const evaluable = entries.filter(Boolean).length
+  const total = entries.length
+  const pct = completeness != null ? Math.round(completeness * 100)
+    : total ? Math.round((evaluable / total) * 100) : 0
+  const color = pct >= 80 ? 'var(--green)' : pct >= 60 ? 'var(--amber)' : 'var(--red)'
+  return (
+    <span style={{ marginLeft: 12, fontSize: '0.8rem', fontWeight: 500, color }}>
+      {evaluable}/{total} criteria evaluable ({pct}%)
+    </span>
   )
 }
 
@@ -344,7 +379,10 @@ export default function Analysis({ apiKey, initialSymbol, onBacktest }) {
           {/* Graham Criteria Breakdown */}
           {graham && (
             <>
-              <h3 className="section-header">Graham Criteria Breakdown</h3>
+              <h3 className="section-header">
+                Graham Criteria Breakdown
+                <CompletenessSummary dataAvailable={graham.dataAvailable} completeness={graham.dataCompleteness} />
+              </h3>
               <div className="criteria-grid">
                 {Object.entries(graham.details).map(([key, detail]) => (
                   <CriterionRow
@@ -353,6 +391,7 @@ export default function Analysis({ apiKey, initialSymbol, onBacktest }) {
                     value={detail.value}
                     threshold={detail.threshold}
                     score={graham.scores[key]}
+                    noData={graham.dataAvailable ? graham.dataAvailable[key] === false : false}
                   />
                 ))}
               </div>
@@ -362,7 +401,10 @@ export default function Analysis({ apiKey, initialSymbol, onBacktest }) {
           {/* Fisher Checklist */}
           {fisher && (
             <>
-              <h3 className="section-header">Fisher 15-Point Checklist</h3>
+              <h3 className="section-header">
+                Fisher 15-Point Checklist
+                <CompletenessSummary dataAvailable={fisher.dataAvailable} completeness={fisher.dataCompleteness} />
+              </h3>
               <div className="criteria-grid">
                 {Object.entries(fisher.details)
                   .sort((a, b) => (a[1].point || 0) - (b[1].point || 0))
@@ -375,6 +417,7 @@ export default function Analysis({ apiKey, initialSymbol, onBacktest }) {
                       score={fisher.scores[key] ?? 0}
                       manual={detail.manual}
                       question={detail.question}
+                      noData={fisher.dataAvailable ? fisher.dataAvailable[key] === false : false}
                     />
                   ))}
               </div>

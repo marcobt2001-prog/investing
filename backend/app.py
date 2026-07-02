@@ -194,6 +194,17 @@ def _parse_screen_params():
     if iv_trend:
         iv_trend = iv_trend.lower()
 
+    # Completeness: a single `minCompleteness` applies to BOTH graham and
+    # fisher (both >= threshold == MIN(graham, fisher) >= threshold).
+    # Individual overrides are also accepted.
+    min_completeness = _f("minCompleteness")
+    min_graham_completeness = _f("minGrahamCompleteness")
+    if min_graham_completeness is None:
+        min_graham_completeness = min_completeness
+    min_fisher_completeness = _f("minFisherCompleteness")
+    if min_fisher_completeness is None:
+        min_fisher_completeness = min_completeness
+
     return {
         "sector": _s("sector"),
         "industry": _s("industry"),
@@ -206,6 +217,8 @@ def _parse_screen_params():
         "signal": _s("signal"),
         "min_discount": _f("minDiscount"),
         "iv_trend": iv_trend,
+        "min_graham_completeness": min_graham_completeness,
+        "min_fisher_completeness": min_fisher_completeness,
         "sort_by": sort_by,
         "sort_dir": args.get("sortDir") or "DESC",
         "limit": int(args.get("limit", "50")),
@@ -249,6 +262,8 @@ def screen():
             "ivCagr10yr": r.get("iv_cagr_10yr"),
             "ivTrend": r.get("iv_trend"),
             "ivStability": r.get("iv_stability"),
+            "grahamCompleteness": r.get("graham_completeness"),
+            "fisherCompleteness": r.get("fisher_completeness"),
             "lastComputed": r.get("last_computed"),
         }
         for r in rows
@@ -268,6 +283,7 @@ def screen_export():
         "graham_grade", "graham_pct", "fisher_grade", "fisher_pct",
         "intrinsic_value_composite", "discount_to_intrinsic", "signal",
         "iv_cagr_5yr", "iv_cagr_10yr", "iv_trend", "iv_stability",
+        "graham_completeness", "fisher_completeness",
         "last_computed",
     ])
     for r in rows:
@@ -280,6 +296,7 @@ def screen_export():
             r.get("signal"),
             r.get("iv_cagr_5yr"), r.get("iv_cagr_10yr"),
             r.get("iv_trend"), r.get("iv_stability"),
+            r.get("graham_completeness"), r.get("fisher_completeness"),
             r.get("last_computed"),
         ])
     csv_text = buf.getvalue()
@@ -675,6 +692,59 @@ def backtest(symbol):
         years=years,
     )
     return jsonify(result)
+
+
+# ---------- Cross-company strategy backtest (Part 2) ----------
+
+@app.route("/api/backtest/strategy", methods=["POST"])
+def strategy_backtest():
+    """Backtest Marco's value strategy across all companies in the DB.
+
+    Body (all optional): marginOfSafety, sellPremium, startYear, endYear,
+    maxPositions, minCompleteness, startingCapital.
+    """
+    from analysis import strategy_backtest as sb
+
+    body = request.get_json(silent=True) or {}
+    try:
+        result = sb.run_strategy_backtest(
+            margin_of_safety=float(body.get("marginOfSafety", 0.30)),
+            sell_premium=float(body.get("sellPremium", 0.20)),
+            start_year=int(body.get("startYear", 2015)),
+            end_year=int(body.get("endYear", 2025)),
+            starting_capital=float(body.get("startingCapital", 100_000)),
+            max_positions=int(body.get("maxPositions", 20)),
+            min_completeness=float(body.get("minCompleteness", 0.70)),
+        )
+        return jsonify(result)
+    except Exception as e:
+        log.exception("strategy backtest failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/backtest/strategy/sweep", methods=["POST"])
+def strategy_backtest_sweep():
+    """Run the strategy backtest for every MoS x sell-premium combination.
+
+    Body (all optional): mosValues[], sellValues[], startYear, endYear,
+    maxPositions, minCompleteness.
+    """
+    from analysis import strategy_backtest as sb
+
+    body = request.get_json(silent=True) or {}
+    try:
+        results = sb.run_parameter_sweep(
+            mos_values=body.get("mosValues"),
+            sell_values=body.get("sellValues"),
+            start_year=int(body.get("startYear", 2015)),
+            end_year=int(body.get("endYear", 2025)),
+            max_positions=int(body.get("maxPositions", 20)),
+            min_completeness=float(body.get("minCompleteness", 0.70)),
+        )
+        return jsonify({"results": results})
+    except Exception as e:
+        log.exception("strategy sweep failed")
+        return jsonify({"error": str(e)}), 500
 
 
 # ---------- Ingest trigger ----------

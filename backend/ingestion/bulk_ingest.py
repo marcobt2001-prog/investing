@@ -262,6 +262,8 @@ def compute_and_store_scores(symbol: str) -> Optional[dict]:
         "iv_cagr_10yr": iv_metrics.get("cagr_10yr"),
         "iv_trend": iv_metrics.get("trend"),
         "iv_stability": iv_metrics.get("stability"),
+        "graham_completeness": graham.get("dataCompleteness"),
+        "fisher_completeness": fisher.get("dataCompleteness"),
     }
     models.upsert_scores(sym, **score_payload)
     return score_payload

@@ -115,6 +115,9 @@ CREATE TABLE IF NOT EXISTS scores (
     iv_trend TEXT,
     iv_stability REAL,
 
+    graham_completeness REAL,
+    fisher_completeness REAL,
+
     last_computed TEXT
 );
 
@@ -164,6 +167,8 @@ _MIGRATIONS = [
     ("scores", "iv_cagr_10yr", "REAL"),
     ("scores", "iv_trend", "TEXT"),
     ("scores", "iv_stability", "REAL"),
+    ("scores", "graham_completeness", "REAL"),
+    ("scores", "fisher_completeness", "REAL"),
 ]
 
 

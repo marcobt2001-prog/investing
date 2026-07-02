@@ -8,11 +8,13 @@ A local web application that screens, analyzes, and values publicly traded stock
 - **Industry Deep-Dive** — Browse companies by sub-industry, deep-ingest an entire industry for real peer-group analysis, and see per-industry valuation-model accuracy rankings.
 - **Graham Analysis** — Scores stocks against 9 quantitative criteria from *The Intelligent Investor*
 - **Fisher Checklist** — Evaluates 15 points from *Common Stocks and Uncommon Profits* (11 automated, 4 flagged for manual review)
+- **Data Completeness Scoring** — Tracks which Graham/Fisher criteria actually had the required input data. A missing input (common for banks/insurers with non-classified balance sheets) is shown as "No data" rather than a failed test, and an *adjusted* score reflects only the criteria that could be evaluated. The screener flags low-completeness companies so you know when a score is unreliable — without hiding them.
 - **Valuation Models** — Computes intrinsic value using 5 methods: Graham Formula, DCF, Book Value, Earnings Power Value, and NCAV
 - **Intrinsic Value Trends** — Computes historical intrinsic value year-by-year so you can see whether a company's value is growing, flat, or declining — with a chart of each model + composite vs. the actual stock price over time.
 - **Model Accuracy by Industry** — Measures which valuation model was most predictive of future prices for each industry, and blends models with industry-specific weights instead of a naive average.
 - **Buy/Sell Signal** — Composite valuation with recommended buy prices at 25%, 35%, and 50% margin of safety
-- **Backtesting** — Simulates a Graham-style strategy over 10+ years of daily price history with configurable parameters
+- **Single-Company Backtesting** — Simulates a Graham-style strategy over 10+ years of daily price history with configurable parameters
+- **Cross-Company Strategy Backtest** — Tests the full value strategy across *every* company in the database, historically: each year it re-scores all companies using only data available at the time, buys quality names (Graham/Fisher B+ with growing intrinsic value) at a margin of safety, and sells when they exceed intrinsic value. Compares against the S&P 500 (SPY) benchmark and includes a parameter sweep across margin-of-safety and sell-premium levels.
 
 ## Architecture
 
@@ -128,6 +130,8 @@ Open http://localhost:5173 in your browser. The app has four tabs — **Screener
 
 The **Industries** tab is the fastest way to build real peer groups: pick a sub-industry, click **Deep Ingest All**, and once it finishes you get the full screener table for that industry plus its valuation-model accuracy rankings. Open any company in **Analysis** to see its intrinsic-value trend chart and its industry-weighted intrinsic value.
 
+The **Backtest** tab has two modes. *Single Company* simulates the Graham strategy on one ticker. *Strategy (All Companies)* runs the cross-company backtest across your whole database — it re-scores every company for each historical year (using only data available at the time), buys quality names at a margin of safety, sells at a premium to intrinsic value, and charts the result against the S&P 500. The **Run Parameter Sweep** button tries every margin-of-safety × sell-premium combination and shows a heatmap of annualized returns. A full run re-scores thousands of companies per year, so expect 30–60 seconds (and several minutes for a full sweep).
+
 ## Maintaining the Database
 
 ```bash
@@ -140,7 +144,8 @@ py -m ingestion.bulk_ingest --symbols NVDA
 py -m ingestion.bulk_ingest --refresh-prices
 
 # Recompute Graham/Fisher/valuation scores from existing DB data
-# (no API calls — useful after editing the analysis modules)
+# (no API calls — useful after editing the analysis modules). Also (re)computes
+# IV trends and data-completeness values for the screener.
 py -m ingestion.bulk_ingest --refresh-scores
 ```
 
@@ -163,10 +168,12 @@ The bulk of the size is daily prices. Companies, financials, and scores together
 | GET    | `/api/db/stats` | Counts and freshness of the local DB |
 | GET    | `/api/sectors` | Distinct sectors present in the DB (for the screener dropdown) |
 | GET    | `/api/search?query=...` | Search local DB by symbol/name; FMP fallback if `apikey` provided |
-| GET    | `/api/screen?...` | Pure-SQL screener with filters: `sector`, `industry`, `capMin`, `capMax`, `grahamGrade`, `fisherGrade`, `minGrahamScore`, `signal`, `minDiscount`, `ivTrend`, `sortBy` (incl. `ivGrowth5yr`/`ivGrowth10yr`/`ivStability`), `sortDir`, `limit` |
+| GET    | `/api/screen?...` | Pure-SQL screener with filters: `sector`, `industry`, `capMin`, `capMax`, `grahamGrade`, `fisherGrade`, `minGrahamScore`, `signal`, `minDiscount`, `ivTrend`, `minCompleteness` (applies to both Graham & Fisher), `sortBy` (incl. `ivGrowth5yr`/`ivGrowth10yr`/`ivStability`), `sortDir`, `limit` |
 | GET    | `/api/screen/export?...` | Same filters, returns CSV download |
-| GET    | `/api/analyze/<sym>` | Run Graham + Fisher + valuation, plus `ivTrends` (historical IV vs price) and industry-weighted valuation (`modelAccuracy`). Triggers single-company ingest if the DB has no data for `sym`. Pass `?refresh=1` to force re-ingest. Pass `?source=fmp` (with `apikey`) for FMP path |
-| GET    | `/api/backtest/<sym>?years=N&mos=0.35&sellPremium=0.20` | Simulate Graham strategy from local price history |
+| GET    | `/api/analyze/<sym>` | Run Graham + Fisher + valuation, plus `ivTrends` (historical IV vs price), industry-weighted valuation (`modelAccuracy`), and data-completeness metadata (`dataAvailable`, `dataCompleteness`, `adjustedPctScore`) on each engine. Auto-deep-ingests the ticker if it's missing or only light-ingested. Pass `?refresh=1` to force re-ingest. Pass `?source=fmp` (with `apikey`) for FMP path |
+| GET    | `/api/backtest/<sym>?years=N&mos=0.35&sellPremium=0.20` | Single-company Graham backtest from local price history |
+| POST   | `/api/backtest/strategy` | Cross-company strategy backtest. Body (all optional): `marginOfSafety`, `sellPremium`, `startYear`, `endYear`, `maxPositions`, `minCompleteness`, `startingCapital`. Returns summary, year-by-year data, trade log, and SPY benchmark series |
+| POST   | `/api/backtest/strategy/sweep` | Runs the strategy backtest for every `mosValues[]` × `sellValues[]` combination; returns a summary per combo |
 | POST   | `/api/ingest` | Body: `{"symbols":[...]}` or `{"universe":"starter\|sp500"}`. Optional `"skipExisting":true` |
 | GET    | `/api/industries?sector=...&min_count=5` | Distinct industries with company counts (optionally filtered by sector) |
 | GET    | `/api/industries/<industry>/companies?limit=N&sort_by=market_cap\|name` | Companies in an industry |

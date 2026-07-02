@@ -38,6 +38,23 @@ const SORT_OPTIONS = [
 
 const IV_TRENDS = ['', 'Growing', 'Stable', 'Declining']
 
+const COMPLETENESS_OPTIONS = [
+  { label: 'All', value: '' },
+  { label: '60%+', value: '0.6' },
+  { label: '70%+', value: '0.7' },
+  { label: '80%+', value: '0.8' },
+  { label: '90%+', value: '0.9' },
+]
+
+// Lower of the two completeness values, color-coded per the spec:
+// green >= 80% (reliable), amber 60-80% (some gaps), red < 60% (caution).
+function completenessColor(pct) {
+  if (pct == null) return 'var(--text-muted)'
+  if (pct >= 0.8) return 'var(--green)'
+  if (pct >= 0.6) return 'var(--amber)'
+  return 'var(--red)'
+}
+
 function gradeColor(grade) {
   if (grade === 'A') return 'var(--green)'
   if (grade === 'B') return 'var(--blue)'
@@ -76,6 +93,7 @@ export default function Screener({ apiKey, onSelectStock }) {
   const [signal, setSignal] = useState('')
   const [minDiscount, setMinDiscount] = useState('')
   const [ivTrend, setIvTrend] = useState('')
+  const [minCompleteness, setMinCompleteness] = useState('')
   const [sortBy, setSortBy] = useState('graham_pct')
   const [sortDir, setSortDir] = useState('DESC')
 
@@ -109,12 +127,13 @@ export default function Screener({ apiKey, onSelectStock }) {
       signal: signal || null,
       minDiscount: minDiscount === '' ? null : Number(minDiscount) / 100, // user enters %, API wants fraction
       ivTrend: ivTrend || null,
+      minCompleteness: minCompleteness || null,
       sortBy,
       sortDir,
       limit: 100,
       apikey: apiKey || null,
     }
-  }, [sector, industry, capRange, grahamGrade, fisherGrade, signal, minDiscount, ivTrend, sortBy, sortDir, apiKey])
+  }, [sector, industry, capRange, grahamGrade, fisherGrade, signal, minDiscount, ivTrend, minCompleteness, sortBy, sortDir, apiKey])
 
   const runScreen = useCallback(async () => {
     setLoading(true)
@@ -402,6 +421,12 @@ export default function Screener({ apiKey, onSelectStock }) {
           </select>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          MIN DATA COMPLETENESS
+          <select value={minCompleteness} onChange={(e) => setMinCompleteness(e.target.value)}>
+            {COMPLETENESS_OPTIONS.map((o) => (<option key={o.value || 'all'} value={o.value}>{o.label}</option>))}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           SORT BY
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
             {SORT_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
@@ -447,6 +472,7 @@ export default function Screener({ apiKey, onSelectStock }) {
                 <th style={{ textAlign: 'right' }}>Price</th>
                 <th style={{ textAlign: 'center' }}>Graham</th>
                 <th style={{ textAlign: 'center' }}>Fisher</th>
+                <th style={{ textAlign: 'center' }} title="Lower of Graham/Fisher data completeness">Data</th>
                 <th style={{ textAlign: 'right' }}>Intrinsic</th>
                 <th style={{ textAlign: 'right' }}>Discount</th>
                 <th style={{ textAlign: 'center' }}>IV Trend</th>
@@ -473,6 +499,19 @@ export default function Screener({ apiKey, onSelectStock }) {
                     <span style={{ color: 'var(--text-muted)', marginLeft: 4, fontSize: '0.75rem' }}>
                       {r.fisherPct != null ? `${(r.fisherPct * 100).toFixed(0)}%` : ''}
                     </span>
+                  </td>
+                  <td style={{ textAlign: 'center', fontSize: '0.8rem' }}>
+                    {(() => {
+                      const g = r.grahamCompleteness
+                      const f = r.fisherCompleteness
+                      const lo = g == null && f == null ? null : Math.min(g ?? 1, f ?? 1)
+                      return (
+                        <span style={{ color: completenessColor(lo), fontWeight: 600 }}
+                          title={`Graham ${g != null ? (g * 100).toFixed(0) + '%' : 'n/a'}, Fisher ${f != null ? (f * 100).toFixed(0) + '%' : 'n/a'}`}>
+                          {lo != null ? `${(lo * 100).toFixed(0)}%` : '—'}
+                        </span>
+                      )
+                    })()}
                   </td>
                   <td style={{ textAlign: 'right' }} className="mono">
                     {r.intrinsicValue != null ? `$${r.intrinsicValue.toFixed(2)}` : '—'}

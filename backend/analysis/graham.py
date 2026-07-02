@@ -239,10 +239,64 @@ def score_graham(profile, income, balance, cashflow, key_metrics):
         "threshold": "Price/NCAV < 1.0 (full), < 1.5 (half)",
     }
 
+    # ---- Data completeness (additive metadata; does not affect scoring) ----
+    # For each criterion, was the required input data actually present? A
+    # missing input still scores 0 above, but we track it here so callers can
+    # distinguish "failed the test" from "couldn't run the test".
+    def _has(*vals):
+        return all(v is not None for v in vals)
+
+    data_available = {
+        "adequateSize": _has(revenue),
+        "currentRatio": _has(current_assets, current_liabilities),
+        "debtToEquity": _has(total_debt, equity),
+        # Stability/growth need actual netIncome values across the window.
+        "earningsStability": (
+            total_years > 0
+            and all(s.get("netIncome") is not None for s in income)
+        ),
+        "earningsGrowth": (
+            len(income) >= 10
+            and all(s.get("netIncome") is not None for s in income[:10])
+        ),
+        "moderatePE": _has(price) and (
+            latest_income.get("eps") is not None
+            or latest_income.get("netIncome") is not None
+        ),
+        "moderatePB": _has(book_value, price, shares),
+        "dividendRecord": (
+            len(cashflow) > 0
+            and all(
+                (s.get("commonDividendsPaid") is not None
+                 or s.get("dividendsPaid") is not None
+                 or s.get("netDividendsPaid") is not None)
+                for s in cashflow[:5]
+            )
+        ),
+        "ncav": _has(current_assets, total_liabilities, shares, price),
+    }
+
+    available_count = sum(1 for ok in data_available.values() if ok)
+    criteria_count = len(data_available)
+    data_completeness = (
+        round(available_count / criteria_count, 3) if criteria_count else 0
+    )
+    missing_count = criteria_count - available_count
+    completeness_note = (
+        f"{missing_count} of {criteria_count} criteria could not be evaluated due to missing data"
+        if missing_count else "All criteria had data available"
+    )
+
     # Compute totals and grade
     total_score = sum(scores.values())
     max_score = len(scores)
     pct_score = safe_div(total_score, max_score) if max_score > 0 else 0
+
+    # adjustedPctScore counts only the criteria we could actually evaluate,
+    # giving a fairer picture. Grade still uses the conservative pct_score.
+    adjusted_pct_score = (
+        round(total_score / available_count, 3) if available_count > 0 else None
+    )
 
     if pct_score >= 0.80:
         grade = "A"
@@ -256,8 +310,12 @@ def score_graham(profile, income, balance, cashflow, key_metrics):
     return {
         "scores": scores,
         "details": details,
+        "dataAvailable": data_available,
+        "dataCompleteness": data_completeness,
+        "completenessNote": completeness_note,
         "totalScore": total_score,
         "maxScore": max_score,
         "pctScore": round(pct_score, 3) if pct_score else 0,
+        "adjustedPctScore": adjusted_pct_score,
         "grade": grade,
     }

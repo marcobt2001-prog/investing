@@ -452,12 +452,78 @@ def score_fisher(profile, income, balance, cashflow):
         "question": "Does management have unquestionable integrity?",
     }
 
+    # ---- Data completeness (additive metadata; does not affect scoring) ----
+    # Was the required input data present for each *automated* criterion?
+    # Manual (judgment) items get None — they aren't data-dependent.
+    def _has(*vals):
+        return all(v is not None for v in vals)
+
+    def _all_present(stmts, field, need):
+        """True if at least `need` of the first `need` statements have `field`
+        non-None."""
+        if len(stmts) < need:
+            return False
+        return all(s.get(field) is not None for s in stmts[:need])
+
+    # R&D special case: 0 is legitimately "reported zero R&D" (banks, staples),
+    # so data IS available. Only None (field absent) means unavailable.
+    rd_present = latest.get("researchAndDevelopmentExpenses") is not None and rev is not None
+
+    data_available = {
+        "salesGrowth": _all_present(income, "revenue", 2),
+        "rdCommitment": rd_present,
+        "rdEffectiveness": (
+            _all_present(income, "grossProfit", 3) and _all_present(income, "revenue", 3)
+        ),
+        "salesEfficiency": _has(sga, rev),
+        "profitMargin": _has(op_income, rev),
+        "marginImprovement": (
+            _all_present(income, "operatingIncome", 3) and _all_present(income, "revenue", 3)
+        ),
+        "laborRelations": (
+            _all_present(income, "sellingGeneralAndAdministrativeExpenses", 3)
+            and _all_present(income, "revenue", 3)
+        ),
+        "executiveRelations": (
+            _all_present(income, "netIncome", 3)
+            and _all_present(balance, "totalStockholdersEquity", 3)
+        ),
+        "accountingQuality": _has(ni, ocf, total_assets),
+        "longRangeOutlook": (
+            _all_present(cashflow, "freeCashFlow", 3) and _all_present(income, "revenue", 3)
+        ),
+        "shareDilution": _all_present(income, "weightedAverageShsOut", 3),
+        # Manual / judgment items — not data-dependent.
+        "managementDepth": None,
+        "industryAdvantages": None,
+        "managementComm": None,
+        "managementIntegrity": None,
+    }
+
+    # Completeness measured only over the automated (data-dependent) criteria.
+    auto_avail = {k: v for k, v in data_available.items() if v is not None}
+    available_count = sum(1 for ok in auto_avail.values() if ok)
+    criteria_count = len(auto_avail)
+    data_completeness = (
+        round(available_count / criteria_count, 3) if criteria_count else 0
+    )
+    missing_count = criteria_count - available_count
+    completeness_note = (
+        f"{missing_count} of {criteria_count} automated criteria could not be evaluated due to missing data"
+        if missing_count else "All automated criteria had data available"
+    )
+
     # Compute totals - only over auto-scored items (non-None)
     auto_scores = {k: v for k, v in scores.items() if v is not None}
     manual_items = {k: v for k, v in scores.items() if v is None}
     total_score = sum(auto_scores.values())
     max_score = len(auto_scores)
     pct_score = safe_div(total_score, max_score) if max_score > 0 else 0
+
+    # adjustedPctScore counts only automated criteria that had data.
+    adjusted_pct_score = (
+        round(total_score / available_count, 3) if available_count > 0 else None
+    )
 
     if pct_score >= 0.80:
         grade = "A"
@@ -471,9 +537,13 @@ def score_fisher(profile, income, balance, cashflow):
     return {
         "scores": scores,
         "details": details,
+        "dataAvailable": data_available,
+        "dataCompleteness": data_completeness,
+        "completenessNote": completeness_note,
         "totalScore": total_score,
         "maxScore": max_score,
         "pctScore": round(pct_score, 3) if pct_score else 0,
+        "adjustedPctScore": adjusted_pct_score,
         "grade": grade,
         "manualReviewCount": len(manual_items),
     }

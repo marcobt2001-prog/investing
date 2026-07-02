@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { backtestStock } from '../utils/api'
 import { formatCurrency, formatPercent } from '../utils/format'
+import StrategyBacktest from './StrategyBacktest'
 
 export default function Backtest({ apiKey, initialSymbol }) {
+  const [mode, setMode] = useState('single') // 'single' | 'strategy'
   const [symbol, setSymbol] = useState(initialSymbol || '')
   const [mos, setMos] = useState('0.35')
   const [sellPremium, setSellPremium] = useState('0.20')
@@ -45,6 +47,20 @@ export default function Backtest({ apiKey, initialSymbol }) {
 
   return (
     <div>
+      {/* Sub-tab toggle */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button className={`btn ${mode === 'single' ? 'btn-primary' : ''}`} onClick={() => setMode('single')}>
+          Single Company
+        </button>
+        <button className={`btn ${mode === 'strategy' ? 'btn-primary' : ''}`} onClick={() => setMode('strategy')}>
+          Strategy (All Companies)
+        </button>
+      </div>
+
+      {mode === 'strategy' && <StrategyBacktest />}
+
+      {mode === 'single' && (
+      <>
       {/* Controls */}
       <form className="controls" onSubmit={handleSubmit}>
         <input
@@ -215,6 +231,8 @@ export default function Backtest({ apiKey, initialSymbol }) {
 
       {data?.error && (
         <div className="error-msg">{data.error}</div>
+      )}
+      </>
       )}
     </div>
   )

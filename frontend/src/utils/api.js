@@ -35,6 +35,7 @@ function buildScreenParams(opts = {}) {
   if (opts.signal) params.set('signal', opts.signal);
   if (opts.minDiscount != null && opts.minDiscount !== '') params.set('minDiscount', opts.minDiscount);
   if (opts.ivTrend) params.set('ivTrend', opts.ivTrend);
+  if (opts.minCompleteness != null && opts.minCompleteness !== '') params.set('minCompleteness', opts.minCompleteness);
   if (opts.sortBy) params.set('sortBy', opts.sortBy);
   if (opts.sortDir) params.set('sortDir', opts.sortDir);
   if (opts.limit) params.set('limit', opts.limit);
@@ -134,4 +135,22 @@ export function backtestStock(apikey, symbol, { mos, sellPremium, years } = {}) 
   if (years) params.set('years', years);
   const qs = params.toString();
   return fetchJson(`${BASE}/backtest/${encodeURIComponent(symbol)}${qs ? `?${qs}` : ''}`);
+}
+
+// ----- Cross-company strategy backtest -----
+
+export function runStrategyBacktest(opts = {}) {
+  return fetchJson(`${BASE}/backtest/strategy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  });
+}
+
+export function runStrategySweep(opts = {}) {
+  return fetchJson(`${BASE}/backtest/strategy/sweep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  });
 }
