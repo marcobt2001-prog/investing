@@ -114,11 +114,23 @@ def _load_exchange_map(force_refresh: bool = False) -> dict[str, dict]:
     return out
 
 
+# Order exchanges roughly by how many major names they carry, so that a
+# capped/sampled slice still spans the biggest venues first.
+_EXCHANGE_RANK = {"NYSE": 0, "Nasdaq": 1, "NYSE American": 2, "AMEX": 2,
+                  "NYSE Arca": 3, "CboeBZX": 4, "BATS": 4}
+
+
 def get_all_tickers() -> list[dict]:
     """All US-listed tickers on major exchanges (NYSE/NASDAQ/AMEX family).
 
     Returns [{"cik", "ticker", "name", "exchange"}], filtering out OTC,
     foreign, and unlisted entries (exchange blank or not in the major set).
+
+    Sorted by exchange rank then ticker (NOT by company name). The raw SEC
+    file is ordered alphabetically by company name, which — when a caller
+    takes the first N — biases toward A-C names and a handful of industries.
+    Sorting by ticker instead gives a diverse spread across the alphabet and
+    across industries for any prefix of the list.
     """
     emap = _load_exchange_map()
     out: list[dict] = []
@@ -134,6 +146,7 @@ def get_all_tickers() -> list[dict]:
             "name": info["name"],
             "exchange": exch,
         })
+    out.sort(key=lambda t: (_EXCHANGE_RANK.get(t["exchange"], 9), t["ticker"]))
     return out
 
 
@@ -201,6 +214,8 @@ def light_ingest_batch(symbols: list[str], batch_size: int = 50) -> int:
 
     syms = [s.upper() for s in symbols]
     ingested = 0
+    fresh_skipped = 0
+    unreachable = 0
     total = len(syms)
 
     for start in range(0, total, batch_size):
@@ -211,6 +226,7 @@ def light_ingest_batch(symbols: list[str], batch_size: int = 50) -> int:
         for s in chunk:
             existing = models.get_company(s)
             if existing and _is_fresh(existing.get("last_profile_update"), LIGHT_FRESH_DAYS):
+                fresh_skipped += 1
                 continue
             to_fetch.append(s)
 
@@ -220,6 +236,8 @@ def light_ingest_batch(symbols: list[str], batch_size: int = 50) -> int:
 
         log.info("light-ingest %d-%d: fetching %d profiles", start, start + len(chunk), len(to_fetch))
         profiles = _batch_fetch_profiles(to_fetch)
+        # Tickers yfinance returned nothing useful for (delisted, no info, etc.)
+        unreachable += len(to_fetch) - len(profiles)
         for sym, prof in profiles.items():
             # Attach CIK if the SEC map knows it (cheap local lookup)
             try:
@@ -234,7 +252,11 @@ def light_ingest_batch(symbols: list[str], batch_size: int = 50) -> int:
         # Be polite to yfinance between batches
         time.sleep(1.0)
 
-    log.info("light_ingest_batch: %d companies ingested (of %d requested)", ingested, total)
+    log.info(
+        "light_ingest_batch: %d ingested, %d already-fresh, %d unreachable "
+        "(no yfinance data) of %d requested",
+        ingested, fresh_skipped, unreachable, total,
+    )
     return ingested
 
 

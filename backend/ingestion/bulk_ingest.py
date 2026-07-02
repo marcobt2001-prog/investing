@@ -47,7 +47,10 @@ log = logging.getLogger(__name__)
 
 PRICE_HISTORY_START = "2010-01-01"
 FRESH_DAYS = 90  # consider data fresh if updated within this window
-DISCOVER_DEFAULT_MAX = 3000  # cap for --discover-universe light ingest
+# Cap for --discover-universe light ingest. Set high enough (8000) that the
+# ~7600-ticker major-exchange list passes through in full; the exchange filter
+# in get_all_tickers() is the real limiter. Use --sample N to test on a subset.
+DISCOVER_DEFAULT_MAX = 8000
 
 
 # ----------------------------- universe lists -----------------------------
@@ -394,10 +397,18 @@ def discover_universe(max_tickers: int = DISCOVER_DEFAULT_MAX, sample: Optional[
     log.info("universe: %d US-listed tickers on major exchanges", len(universe))
 
     symbols = [u["ticker"] for u in universe]
-    cap = sample if sample is not None else max_tickers
-    if cap is not None and len(symbols) > cap:
-        symbols = symbols[:cap]
-        log.info("capping to first %d tickers", cap)
+    if sample is not None and len(symbols) > sample:
+        # Stride evenly across the ticker-sorted universe so a small sample
+        # spans the whole alphabet (and thus many industries) rather than
+        # just the A-names at the front.
+        step = len(symbols) / sample
+        symbols = [symbols[int(i * step)] for i in range(sample)]
+        log.info("sampling %d tickers strided across the universe", sample)
+    elif len(symbols) > max_tickers:
+        symbols = symbols[:max_tickers]
+        log.info("capping to first %d tickers", max_tickers)
+    else:
+        log.info("no cap — light-ingesting all %d tickers", len(symbols))
 
     return disc.light_ingest_batch(symbols)
 

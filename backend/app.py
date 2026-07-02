@@ -362,23 +362,43 @@ def analyze(symbol):
 
     company = models.get_company(symbol)
     fresh = company and _is_fresh(company.get("last_profile_update"))
+    has_financials = bool(models.get_financials(symbol, limit=1))
 
-    if (not company) or force_refresh or (not fresh and source == "auto"):
-        # Trigger a single-company ingest. This is what the spec calls
-        # "first analysis of a new company is slow, subsequent ones instant."
+    # Deep-ingest if: the company isn't in the DB at all, OR it's only been
+    # light-ingested (profile but no financials), OR its profile is stale, OR
+    # the caller forced a refresh. A light-ingested company has a fresh
+    # profile but no financials, so freshness alone is not enough to skip.
+    needs_ingest = (
+        (not company)
+        or force_refresh
+        or (not has_financials)
+        or (not fresh and source == "auto")
+    )
+
+    if needs_ingest:
+        # Full deep ingest (EDGAR + prices + scores). Slow the first time
+        # (~5-15s), instant thereafter. The frontend's loading state covers
+        # the wait.
         try:
-            log.info("[%s] not in DB or stale — running ingest_company()", symbol)
+            log.info("[%s] deep-ingesting (missing/light-only/stale)", symbol)
             status = bulk_ingest.ingest_company(symbol)
-            if not status.get("ok"):
-                # If the user gave an apikey and ingestion failed, try FMP fallback.
+            company = models.get_company(symbol)
+            has_financials = bool(models.get_financials(symbol, limit=1))
+            if not has_financials:
+                # Ingest ran but EDGAR genuinely returned no statements.
                 if request.args.get("apikey"):
-                    log.warning("[%s] DB ingest failed (%s) — falling back to FMP", symbol, status["errors"])
+                    log.warning("[%s] no EDGAR financials (%s) — falling back to FMP",
+                                symbol, status.get("errors"))
                     return _legacy_fmp_analyze(symbol)
                 return jsonify({
-                    "error": f"Ingestion failed for {symbol}",
+                    "error": (
+                        f"Could not retrieve financial statements for {symbol}. "
+                        "This company may not file with the SEC (e.g. foreign-listed), "
+                        "or its XBRL filings use tags not yet in our mapping. You can "
+                        "try the FMP fallback by entering an API key."
+                    ),
                     "details": status.get("errors", []),
                 }), 502
-            company = models.get_company(symbol)
         except Exception as e:
             log.exception("[%s] ingestion crashed", symbol)
             if request.args.get("apikey"):
@@ -391,7 +411,12 @@ def analyze(symbol):
     financials = models.get_financials(symbol, limit=20)
     if not financials:
         return jsonify({
-            "error": f"Company {symbol} has profile data but no financial statements (EDGAR mapping may have missed this filer)",
+            "error": (
+                f"Could not retrieve financial statements for {symbol}. "
+                "This company may not file with the SEC (e.g. foreign-listed), "
+                "or its XBRL filings use tags not yet in our mapping. You can "
+                "try the FMP fallback by entering an API key."
+            ),
         }), 502
 
     inputs = to_analysis_inputs(company, financials)
