@@ -5,6 +5,9 @@ __pycache__/
 .venv/
 venv/
 
+# LLM provider config — contains the API key, must stay local
+backend/llm_config.json
+
 # Local database + cached source files (regenerated on demand)
 backend/database/value_investor.db
 backend/database/value_investor.db-wal

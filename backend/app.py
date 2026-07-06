@@ -25,6 +25,9 @@ from database.db import get_db
 from ingestion import bulk_ingest
 from ingestion.db_adapter import to_analysis_inputs, historical_prices_fmp_shape
 
+from llm import config as llm_config
+from llm import evaluator as llm_evaluator
+
 app = Flask(__name__)
 CORS(app)
 
@@ -186,6 +189,7 @@ def _parse_screen_params():
         "grahamPct": "graham_pct",
         "fisherPct": "fisher_pct",
         "discount": "discount_to_intrinsic",
+        "qualityScore": "quality_score",
     }
     sort_by = sort_alias.get(sort_by, sort_by)
 
@@ -219,6 +223,9 @@ def _parse_screen_params():
         "iv_trend": iv_trend,
         "min_graham_completeness": min_graham_completeness,
         "min_fisher_completeness": min_fisher_completeness,
+        "min_quality_score": _f("minQualityScore"),
+        "moat_durability": _s("moatDurability"),
+        "overall_risk": _s("overallRisk"),
         "sort_by": sort_by,
         "sort_dir": args.get("sortDir") or "DESC",
         "limit": int(args.get("limit", "50")),
@@ -265,6 +272,10 @@ def screen():
             "grahamCompleteness": r.get("graham_completeness"),
             "fisherCompleteness": r.get("fisher_completeness"),
             "lastComputed": r.get("last_computed"),
+            "aiQualityScore": r.get("quality_score"),
+            "aiOverallRisk": r.get("overall_risk"),
+            "aiMoatType": r.get("moat_type"),
+            "aiMoatDurability": r.get("moat_durability"),
         }
         for r in rows
     ])
@@ -933,6 +944,127 @@ def ingest_industry():
     except Exception as e:
         log.exception("[%s] deep ingest failed", industry)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------- LLM qualitative evaluation ----------
+
+def _llm_status_payload():
+    """Build the status payload the UI polls. Never leaks the API key —
+    only whether one is set."""
+    status = llm_evaluator.get_llm_status()  # {provider, model, available, ...}
+    cfg = llm_config.load_config()
+    return {
+        "provider": status.get("provider"),
+        "model": status.get("model"),
+        "available": status.get("available", False),
+        "baseUrl": status.get("baseUrl"),  # present for ollama only
+        "hasApiKey": bool(cfg.get("claude_api_key")),
+        "claudeModel": cfg.get("claude_model"),
+        "ollamaModel": cfg.get("ollama_model"),
+        "ollamaBaseUrl": cfg.get("ollama_base_url"),
+    }
+
+
+@app.route("/api/llm/status")
+def llm_status():
+    """Current LLM provider, model, and availability (no secrets returned)."""
+    return jsonify(_llm_status_payload())
+
+
+@app.route("/api/llm/configure", methods=["POST"])
+def llm_configure():
+    """Update LLM config from the UI (provider, api key, models).
+
+    Body (all optional): provider, claudeApiKey, claudeModel, ollamaModel,
+    ollamaBaseUrl, maxTokens, temperature. Only whitelisted keys are persisted.
+    Returns the refreshed status payload.
+    """
+    body = request.get_json(silent=True) or {}
+
+    # Start from the current on-disk config so unspecified fields are preserved.
+    cfg = llm_config.load_config()
+
+    if "provider" in body and body["provider"] in ("claude", "ollama"):
+        cfg["provider"] = body["provider"]
+    # Only overwrite the key when a non-empty value is sent, so re-saving other
+    # settings from the UI (which never receives the key back) can't wipe it.
+    if body.get("claudeApiKey"):
+        cfg["claude_api_key"] = body["claudeApiKey"]
+    if body.get("claudeModel"):
+        cfg["claude_model"] = body["claudeModel"]
+    if body.get("ollamaModel"):
+        cfg["ollama_model"] = body["ollamaModel"]
+    if body.get("ollamaBaseUrl"):
+        cfg["ollama_base_url"] = body["ollamaBaseUrl"]
+    if body.get("maxTokens"):
+        try:
+            cfg["max_tokens"] = int(body["maxTokens"])
+        except (ValueError, TypeError):
+            pass
+    if body.get("temperature") is not None:
+        try:
+            cfg["temperature"] = float(body["temperature"])
+        except (ValueError, TypeError):
+            pass
+
+    try:
+        llm_config.save_config(cfg)
+    except OSError as e:
+        log.exception("failed to save llm config")
+        return jsonify({"error": f"Could not save config: {e}"}), 500
+
+    return jsonify(_llm_status_payload())
+
+
+@app.route("/api/llm/evaluate/<symbol>", methods=["POST"])
+def llm_evaluate(symbol):
+    """Run (or return cached) LLM qualitative evaluation for a company.
+
+    Query param: ?force=true bypasses the 30-day cache and re-runs the LLM.
+    """
+    symbol = symbol.upper()
+    force = request.args.get("force", "").lower() in ("1", "true", "yes")
+
+    result = llm_evaluator.evaluate_company(symbol, force=force)
+    if isinstance(result, dict) and result.get("error"):
+        # Map known preconditions to sensible status codes.
+        msg = result["error"]
+        if "not available" in msg:
+            status = 503  # provider not configured / unreachable
+        elif "not found" in msg or "No financial data" in msg or "No scores" in msg:
+            status = 404
+        else:
+            status = 502  # LLM call / parse failure
+        return jsonify(result), status
+    return jsonify(result)
+
+
+@app.route("/api/llm/evaluation/<symbol>")
+def llm_evaluation(symbol):
+    """Return the cached LLM evaluation for a company, or 404 if none stored.
+
+    Read-only — never triggers an LLM call.
+    """
+    symbol = symbol.upper()
+    cached = models.get_llm_evaluation(symbol)
+    if not cached:
+        return jsonify({"error": f"No LLM evaluation cached for {symbol}"}), 404
+
+    evaluation = cached.get("evaluation")
+    if isinstance(evaluation, dict):
+        evaluation["_meta"] = {
+            "symbol": symbol,
+            "provider": cached.get("provider"),
+            "model": cached.get("model"),
+            "cached": True,
+            "createdAt": cached.get("created_at"),
+            "cacheAgeDays": (
+                round(llm_evaluator._cache_age_days(cached.get("created_at")), 1)
+                if llm_evaluator._cache_age_days(cached.get("created_at")) is not None
+                else None
+            ),
+        }
+    return jsonify(evaluation)
 
 
 if __name__ == "__main__":

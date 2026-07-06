@@ -36,6 +36,9 @@ function buildScreenParams(opts = {}) {
   if (opts.minDiscount != null && opts.minDiscount !== '') params.set('minDiscount', opts.minDiscount);
   if (opts.ivTrend) params.set('ivTrend', opts.ivTrend);
   if (opts.minCompleteness != null && opts.minCompleteness !== '') params.set('minCompleteness', opts.minCompleteness);
+  if (opts.minQualityScore != null && opts.minQualityScore !== '') params.set('minQualityScore', opts.minQualityScore);
+  if (opts.moatDurability) params.set('moatDurability', opts.moatDurability);
+  if (opts.overallRisk) params.set('overallRisk', opts.overallRisk);
   if (opts.sortBy) params.set('sortBy', opts.sortBy);
   if (opts.sortDir) params.set('sortDir', opts.sortDir);
   if (opts.limit) params.set('limit', opts.limit);
@@ -135,6 +138,33 @@ export function backtestStock(apikey, symbol, { mos, sellPremium, years } = {}) 
   if (years) params.set('years', years);
   const qs = params.toString();
   return fetchJson(`${BASE}/backtest/${encodeURIComponent(symbol)}${qs ? `?${qs}` : ''}`);
+}
+
+// ----- LLM qualitative evaluation -----
+
+export function getLLMStatus() {
+  return fetchJson(`${BASE}/llm/status`);
+}
+
+export function configureLLM(settings = {}) {
+  return fetchJson(`${BASE}/llm/configure`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+}
+
+// Run (or return cached) evaluation. force=true bypasses the 30-day cache.
+export function evaluateCompanyLLM(symbol, { force = false } = {}) {
+  const qs = force ? '?force=true' : '';
+  return fetchJson(`${BASE}/llm/evaluate/${encodeURIComponent(symbol)}${qs}`, {
+    method: 'POST',
+  });
+}
+
+// Read-only cached fetch. Rejects (404) if nothing is stored.
+export function getLLMEvaluation(symbol) {
+  return fetchJson(`${BASE}/llm/evaluation/${encodeURIComponent(symbol)}`);
 }
 
 // ----- Cross-company strategy backtest -----

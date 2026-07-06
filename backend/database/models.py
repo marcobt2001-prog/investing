@@ -62,6 +62,11 @@ _MODEL_ACCURACY_COLUMNS = {
     "sample_size", "rank_3yr", "recommended_weight", "last_computed",
 }
 
+_LLM_EVALUATION_COLUMNS = {
+    "symbol", "evaluation", "provider", "model", "quality_score",
+    "overall_risk", "moat_type", "moat_durability", "confidence", "created_at",
+}
+
 
 def _now_iso() -> str:
     return _dt.datetime.utcnow().isoformat(timespec="seconds")
@@ -279,6 +284,56 @@ def get_model_accuracy(industry: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+# ---------- llm evaluations ----------
+
+def upsert_llm_evaluation(
+    symbol: str, evaluation: Any, provider: str, model: Optional[str],
+    quality_score: Optional[int] = None, overall_risk: Optional[str] = None,
+    moat_type: Optional[str] = None, moat_durability: Optional[str] = None,
+    confidence: Optional[str] = None,
+) -> None:
+    """Cache one LLM qualitative evaluation for a company.
+
+    `evaluation` may be a dict (json-encoded automatically) or a pre-serialized
+    string. The scalar columns (quality_score, overall_risk, etc.) are pulled
+    out for cheap screener filtering without re-parsing the JSON blob.
+    """
+    if evaluation is not None and not isinstance(evaluation, str):
+        evaluation = _json.dumps(evaluation)
+    data = {
+        "symbol": symbol.upper(),
+        "evaluation": evaluation,
+        "provider": provider,
+        "model": model,
+        "quality_score": quality_score,
+        "overall_risk": overall_risk,
+        "moat_type": moat_type,
+        "moat_durability": moat_durability,
+        "confidence": confidence,
+        "created_at": _now_iso(),
+    }
+    _upsert("llm_evaluations", ["symbol"], data)
+
+
+def get_llm_evaluation(symbol: str) -> Optional[dict]:
+    """Return the cached LLM evaluation for a company, or None.
+
+    The `evaluation` JSON blob is decoded back into a dict where possible.
+    """
+    row = get_db().execute(
+        "SELECT * FROM llm_evaluations WHERE symbol = ?", (symbol.upper(),)
+    ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    if d.get("evaluation"):
+        try:
+            d["evaluation"] = _json.loads(d["evaluation"])
+        except (ValueError, TypeError):
+            pass
+    return d
+
+
 # ---------- industries ----------
 
 def get_industries(min_count: int = 5) -> list[dict]:
@@ -390,6 +445,9 @@ def screen_companies(
     iv_trend: Optional[str] = None,
     min_graham_completeness: Optional[float] = None,
     min_fisher_completeness: Optional[float] = None,
+    min_quality_score: Optional[int] = None,
+    moat_durability: Optional[str] = None,
+    overall_risk: Optional[str] = None,
     sort_by: str = "graham_pct",
     sort_dir: str = "DESC",
     limit: int = 50,
@@ -404,6 +462,7 @@ def screen_companies(
         "graham_pct", "graham_total", "fisher_pct", "fisher_total",
         "intrinsic_value_composite", "discount_to_intrinsic", "signal",
         "iv_cagr_5yr", "iv_cagr_10yr", "iv_stability",
+        "quality_score",
     }
     if sort_by not in sort_whitelist:
         sort_by = "graham_pct"
@@ -451,8 +510,20 @@ def screen_companies(
     if min_fisher_completeness is not None:
         where.append("s.fisher_completeness >= ?")
         params.append(min_fisher_completeness)
+    if min_quality_score is not None:
+        where.append("l.quality_score >= ?")
+        params.append(min_quality_score)
+    if moat_durability:
+        where.append("l.moat_durability = ?")
+        params.append(moat_durability)
+    if overall_risk:
+        where.append("l.overall_risk = ?")
+        params.append(overall_risk)
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+    # quality_score lives on the llm_evaluations join; qualify it for ORDER BY.
+    sort_col = "l.quality_score" if sort_by == "quality_score" else sort_by
 
     sql = f"""
         SELECT
@@ -462,11 +533,13 @@ def screen_companies(
             s.intrinsic_value_composite, s.discount_to_intrinsic, s.signal,
             s.iv_cagr_5yr, s.iv_cagr_10yr, s.iv_trend, s.iv_stability,
             s.graham_completeness, s.fisher_completeness,
-            s.last_computed
+            s.last_computed,
+            l.quality_score, l.overall_risk, l.moat_type, l.moat_durability
         FROM companies c
         LEFT JOIN scores s ON s.symbol = c.symbol
+        LEFT JOIN llm_evaluations l ON l.symbol = c.symbol
         {where_sql}
-        ORDER BY {sort_by} {sort_dir} NULLS LAST
+        ORDER BY {sort_col} {sort_dir} NULLS LAST
         LIMIT ?
     """
     params.append(limit)

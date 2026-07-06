@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { analyzeStock } from '../utils/api'
 import { formatCurrency, formatLargeCurrency, formatPercent } from '../utils/format'
 import IvTrendChart from './IvTrendChart'
+import LLMEvaluation from './LLMEvaluation'
 
 const MODEL_LABELS = {
   graham: 'Graham', dcf: 'DCF', book_value: 'Book Value', epv: 'EPV', ncav: 'NCAV',
@@ -375,6 +376,9 @@ export default function Analysis({ apiKey, initialSymbol, onBacktest }) {
               />
             )}
           </div>
+
+          {/* AI Qualitative Evaluation (LLM) — on-demand, cached */}
+          <LLMEvaluation symbol={symbol} />
 
           {/* Graham Criteria Breakdown */}
           {graham && (

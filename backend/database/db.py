@@ -143,6 +143,19 @@ CREATE TABLE IF NOT EXISTS model_accuracy (
     PRIMARY KEY (industry, model)
 );
 
+CREATE TABLE IF NOT EXISTS llm_evaluations (
+    symbol TEXT PRIMARY KEY,
+    evaluation TEXT,            -- Full JSON evaluation returned by the LLM
+    provider TEXT,             -- "claude" or "ollama"
+    model TEXT,                -- Model ID used
+    quality_score INTEGER,     -- overallAssessment.qualityScore (1-5), for filtering
+    overall_risk TEXT,         -- riskAssessment.overallRisk, for filtering
+    moat_type TEXT,            -- competitivePosition.moatType, for filtering
+    moat_durability TEXT,      -- competitivePosition.moatDurability, for filtering
+    confidence TEXT,           -- overallAssessment.confidenceLevel
+    created_at TEXT            -- ISO datetime the evaluation was generated
+);
+
 CREATE INDEX IF NOT EXISTS idx_companies_sector ON companies(sector);
 CREATE INDEX IF NOT EXISTS idx_companies_industry ON companies(industry);
 CREATE INDEX IF NOT EXISTS idx_companies_market_cap ON companies(market_cap);
@@ -151,6 +164,9 @@ CREATE INDEX IF NOT EXISTS idx_daily_prices_symbol_date ON daily_prices(symbol, 
 CREATE INDEX IF NOT EXISTS idx_scores_graham_grade ON scores(graham_grade);
 CREATE INDEX IF NOT EXISTS idx_scores_signal ON scores(signal);
 CREATE INDEX IF NOT EXISTS idx_hist_val_symbol ON historical_valuations(symbol);
+CREATE INDEX IF NOT EXISTS idx_llm_quality_score ON llm_evaluations(quality_score);
+CREATE INDEX IF NOT EXISTS idx_llm_overall_risk ON llm_evaluations(overall_risk);
+CREATE INDEX IF NOT EXISTS idx_llm_moat_durability ON llm_evaluations(moat_durability);
 """
 
 # Indexes that reference columns added by _MIGRATIONS. These must run AFTER

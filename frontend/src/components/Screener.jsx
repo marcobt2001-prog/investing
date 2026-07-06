@@ -33,10 +33,20 @@ const SORT_OPTIONS = [
   { value: 'iv_stability', label: 'IV Stability' },
   { value: 'market_cap', label: 'Market Cap' },
   { value: 'price', label: 'Price' },
+  { value: 'quality_score', label: 'AI Quality Score' },
   { value: 'symbol', label: 'Symbol' },
 ]
 
 const IV_TRENDS = ['', 'Growing', 'Stable', 'Declining']
+
+const QUALITY_OPTIONS = [
+  { label: 'All', value: '' },
+  { label: '3+', value: '3' },
+  { label: '4+', value: '4' },
+  { label: '5 only', value: '5' },
+]
+const MOAT_DURABILITY_OPTIONS = ['', 'strong', 'moderate', 'weak', 'none']
+const RISK_OPTIONS = ['', 'low', 'moderate', 'elevated', 'high']
 
 const COMPLETENESS_OPTIONS = [
   { label: 'All', value: '' },
@@ -60,6 +70,20 @@ function gradeColor(grade) {
   if (grade === 'B') return 'var(--blue)'
   if (grade === 'C') return 'var(--amber)'
   if (grade === 'D') return 'var(--red)'
+  return 'var(--text-muted)'
+}
+
+function qualityColor(score) {
+  if (score == null) return 'var(--text-muted)'
+  if (score >= 4) return 'var(--green)'
+  if (score === 3) return 'var(--amber)'
+  return 'var(--red)'
+}
+
+function riskColor(risk) {
+  if (risk === 'low') return 'var(--green)'
+  if (risk === 'moderate') return 'var(--amber)'
+  if (risk === 'elevated' || risk === 'high') return 'var(--red)'
   return 'var(--text-muted)'
 }
 
@@ -94,6 +118,9 @@ export default function Screener({ apiKey, onSelectStock }) {
   const [minDiscount, setMinDiscount] = useState('')
   const [ivTrend, setIvTrend] = useState('')
   const [minCompleteness, setMinCompleteness] = useState('')
+  const [minQualityScore, setMinQualityScore] = useState('')
+  const [moatDurability, setMoatDurability] = useState('')
+  const [overallRisk, setOverallRisk] = useState('')
   const [sortBy, setSortBy] = useState('graham_pct')
   const [sortDir, setSortDir] = useState('DESC')
 
@@ -128,12 +155,15 @@ export default function Screener({ apiKey, onSelectStock }) {
       minDiscount: minDiscount === '' ? null : Number(minDiscount) / 100, // user enters %, API wants fraction
       ivTrend: ivTrend || null,
       minCompleteness: minCompleteness || null,
+      minQualityScore: minQualityScore || null,
+      moatDurability: moatDurability || null,
+      overallRisk: overallRisk || null,
       sortBy,
       sortDir,
       limit: 100,
       apikey: apiKey || null,
     }
-  }, [sector, industry, capRange, grahamGrade, fisherGrade, signal, minDiscount, ivTrend, minCompleteness, sortBy, sortDir, apiKey])
+  }, [sector, industry, capRange, grahamGrade, fisherGrade, signal, minDiscount, ivTrend, minCompleteness, minQualityScore, moatDurability, overallRisk, sortBy, sortDir, apiKey])
 
   const runScreen = useCallback(async () => {
     setLoading(true)
@@ -427,6 +457,28 @@ export default function Screener({ apiKey, onSelectStock }) {
           </select>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          AI QUALITY
+          <select value={minQualityScore} onChange={(e) => setMinQualityScore(e.target.value)}>
+            {QUALITY_OPTIONS.map((o) => (<option key={o.value || 'all'} value={o.value}>{o.label}</option>))}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          AI MOAT DURABILITY
+          <select value={moatDurability} onChange={(e) => setMoatDurability(e.target.value)}>
+            {MOAT_DURABILITY_OPTIONS.map((m) => (
+              <option key={m || 'all'} value={m} style={{ textTransform: 'capitalize' }}>{m ? m[0].toUpperCase() + m.slice(1) : 'All'}</option>
+            ))}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          AI RISK
+          <select value={overallRisk} onChange={(e) => setOverallRisk(e.target.value)}>
+            {RISK_OPTIONS.map((r) => (
+              <option key={r || 'all'} value={r}>{r ? r[0].toUpperCase() + r.slice(1) : 'All'}</option>
+            ))}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           SORT BY
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
             {SORT_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
@@ -477,6 +529,9 @@ export default function Screener({ apiKey, onSelectStock }) {
                 <th style={{ textAlign: 'right' }}>Discount</th>
                 <th style={{ textAlign: 'center' }}>IV Trend</th>
                 <th>Signal</th>
+                <th style={{ textAlign: 'center' }} title="AI business-quality score (1-5)">AI Q</th>
+                <th style={{ textAlign: 'center' }} title="AI-assessed moat durability">Moat</th>
+                <th style={{ textAlign: 'center' }} title="AI-assessed overall risk">Risk</th>
                 <th></th>
               </tr>
             </thead>
@@ -542,6 +597,24 @@ export default function Screener({ apiKey, onSelectStock }) {
                   </td>
                   <td style={{ color: signalColor(r.signal), fontWeight: 600, fontSize: '0.85rem' }}>
                     {r.signal || '—'}
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    {r.aiQualityScore != null ? (
+                      <span className="mono" style={{ color: qualityColor(r.aiQualityScore), fontWeight: 700 }}>
+                        {r.aiQualityScore}
+                      </span>
+                    ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                  </td>
+                  <td style={{ textAlign: 'center', fontSize: '0.8rem', textTransform: 'capitalize',
+                    color: r.aiMoatDurability === 'strong' ? 'var(--green)'
+                      : r.aiMoatDurability === 'weak' || r.aiMoatDurability === 'none' ? 'var(--red)'
+                      : r.aiMoatDurability ? 'var(--amber)' : 'var(--text-muted)' }}
+                    title={r.aiMoatType ? r.aiMoatType.replace(/_/g, ' ') : ''}>
+                    {r.aiMoatDurability || '—'}
+                  </td>
+                  <td style={{ textAlign: 'center', fontSize: '0.8rem', textTransform: 'capitalize',
+                    color: riskColor(r.aiOverallRisk) }}>
+                    {r.aiOverallRisk || '—'}
                   </td>
                   <td style={{ color: 'var(--blue)' }}>Analyze →</td>
                 </tr>

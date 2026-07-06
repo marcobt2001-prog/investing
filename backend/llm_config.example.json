@@ -1,0 +1,9 @@
+{
+  "provider": "claude",
+  "claude_api_key": null,
+  "claude_model": "claude-sonnet-5",
+  "ollama_base_url": "http://localhost:11434",
+  "ollama_model": "llama3.1:8b",
+  "max_tokens": 4096,
+  "temperature": 0.3
+}

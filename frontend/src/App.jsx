@@ -4,6 +4,7 @@ import Screener from './components/Screener'
 import Analysis from './components/Analysis'
 import Backtest from './components/Backtest'
 import IndustryView from './components/IndustryView'
+import LLMSettings from './components/LLMSettings'
 
 function App() {
   const [apiKey, setApiKey] = useState('')
@@ -68,6 +69,12 @@ function App() {
         >
           Backtest
         </button>
+        <button
+          className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
+          onClick={() => setActiveTab('settings')}
+        >
+          AI Settings
+        </button>
       </nav>
 
       {/* Content — works without an API key. The key is only forwarded
@@ -89,6 +96,9 @@ function App() {
         )}
         {activeTab === 'backtest' && (
           <Backtest apiKey={apiKey} initialSymbol={selectedSymbol} />
+        )}
+        {activeTab === 'settings' && (
+          <LLMSettings />
         )}
       </div>
 
